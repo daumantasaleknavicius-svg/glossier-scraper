@@ -1,4 +1,4 @@
-// Access the Glossier website using Chromium through Playwright
+
 const { chromium } = require("playwright");
 const fs = require("fs");
 
@@ -22,7 +22,8 @@ async function main() {
             waitUntil: "domcontentloaded",
             timeout: 45000
         });
-// Scroll through the page to load all products
+
+        // Scroll through the page to load all products
         const cards = page.locator(".pi.js-product-item");
         await cards.first().waitFor();
         await page.waitForTimeout(3000);
@@ -48,23 +49,25 @@ async function main() {
             if (currentCount === previousCount && currentCount === count) break;
             previousCount = currentCount;
         }
-// Extract product information from the collection page
+
+        // Extract product information
         const products = await page.evaluate(() =>
             [...document.querySelectorAll(".pi.js-product-item")].map(card => {
                 const image = card.querySelector("img");
+                const imageUrl = image?.currentSrc || image?.src || "";
 
                 return {
                     name: card.querySelector(".js-product-title")?.textContent.trim() || "",
+                    id: "",
                     url: card.querySelector("a.js-product-item-link")?.href || "",
-                    image: image?.getAttribute("src")?.replace("{width}", "800")
-                        || image?.getAttribute("srcset")?.split(",")[0].trim().split(/\s+/)[0]
-                        || "",
+                    images: imageUrl
+                        ? [new URL(imageUrl, document.baseURI).origin +
+                           new URL(imageUrl, document.baseURI).pathname]
+                        : [],
                     price: card.querySelector(".pi__price--current")
                         ?.textContent.replace("Sale price", "").trim() || "",
-                    id: "",
                     description: "",
-                    descriptionSource: "missing",
-                    scrapedAt: new Date().toISOString()
+                    scraped_at: new Date().toISOString()
                 };
             })
         );
@@ -85,7 +88,8 @@ async function main() {
         }
 
         const detailPage = await context.newPage();
-// Visit each product page to collect descriptions and variant IDs
+
+        // Visit each product page to collect descriptions and IDs
         for (const [index, product] of products.entries()) {
             if (!product.url) continue;
 
@@ -120,7 +124,6 @@ async function main() {
 
                         return {
                             description: htmlDescription || metaDescription,
-                            source: htmlDescription ? "html" : metaDescription ? "meta" : "missing",
                             variantId
                         };
                     });
@@ -128,7 +131,6 @@ async function main() {
                     if (!product.id) product.id = result.variantId;
 
                     product.description = result.description;
-                    product.descriptionSource = result.source;
 
                     if (product.description && product.id) break;
                 } catch (error) {
@@ -139,12 +141,13 @@ async function main() {
             }
 
             console.log(
-                `${index + 1}/${products.length}: ${product.name} | ID: ${product.id || "NOT FOUND"} | ${product.descriptionSource}`
+                `${index + 1}/${products.length}: ${product.name} | ID: ${product.id || "NOT FOUND"}`
             );
-// Check for missing or duplicate IDs
+
             await detailPage.waitForTimeout(400);
         }
 
+        // Check for missing or duplicate IDs
         const ids = products.map(product => product.id);
         const seen = new Set();
         const duplicates = [];
@@ -168,16 +171,21 @@ async function main() {
             console.log("CSV was not created.");
             return;
         }
-// Save the collected data to a CSV file
+
+        // Save collected data to CSV
         const headers = [
-            "name", "id", "url", "image", "price",
-            "description", "descriptionSource", "scrapedAt"
+            "name", "id", "url", "images",
+            "price", "description", "scraped_at"
         ];
 
         const lines = [
             headers.join(","),
             ...products.map(product =>
-                headers.map(header => csv(product[header])).join(",")
+                headers.map(header =>
+                    csv(header === "images"
+                        ? JSON.stringify(product.images)
+                        : product[header])
+                ).join(",")
             )
         ];
 
@@ -191,8 +199,7 @@ async function main() {
         console.log("Products:", products.length);
         console.log("Unique IDs:", new Set(ids).size);
         console.log("Prices in EUR:", products.filter(product => product.price.includes("€")).length);
-        console.log("HTML descriptions:", products.filter(product => product.descriptionSource === "html").length);
-        console.log("Meta descriptions:", products.filter(product => product.descriptionSource === "meta").length);
+        console.log("Products with images:", products.filter(product => product.images.length > 0).length);
         console.log("Missing descriptions:", products.filter(product => !product.description).length);
         console.log("File created: products_final.csv");
     } finally {

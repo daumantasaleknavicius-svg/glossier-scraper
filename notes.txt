@@ -1,0 +1,32 @@
+Glossier Scraper - Technical Notes
+
+## Tools
+- Node.js
+- Playwright
+- JavaScript
+- Visual Studio Code
+- Git and GitHub
+
+## Approach
+The scraper uses Playwright to collect product data from the Glossier website. Browser rendering was chosen because the product listing contains dynamically loaded content.
+
+The scraper collects product information from the collection page and visits individual product pages to extract descriptions.
+
+## Assumptions and Decisions
+- Product IDs are stored as strings to preserve their original representation.
+- Image URLs are stored as arrays of strings, including when only one image is available.
+- Image URL query parameters are removed to avoid requesting explicitly resized versions.
+- Prices are preserved as strings in the currency displayed by the website.
+- Scraping timestamps are stored as strings.
+- Product descriptions are extracted from product pages, with metadata used as a fallback when appropriate.
+
+## Challenges and Limitations
+- The Glossier website sometimes displays USD prices instead of EUR in automated browser sessions.
+- A persistent browser profile can help preserve the selected country and currency.
+- Product data and website structure can change over time.
+- The existing EUR dataset should be preserved when testing other locations.
+
+## Output
+The main output is a CSV file containing Glossier product information.
+
+Any additional US market scraping results should be saved separately rather than overwriting the original EUR dataset.
