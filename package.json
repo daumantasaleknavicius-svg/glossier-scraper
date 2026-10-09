@@ -1,0 +1,20 @@
+
+{
+  "name": "glossier-scraper",
+  "version": "1.0.0",
+  "description": "A Playwright scraper for Glossier products using HTML DOM extraction.",
+  "main": "scraper.js",
+  "scripts": {
+    "start": "node scraper.js"
+  },
+  "keywords": [
+    "scraper",
+    "playwright",
+    "glossier"
+  ],
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.64.0"
+  }
+}
