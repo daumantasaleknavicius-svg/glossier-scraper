@@ -1,8 +1,7 @@
-
 {
   "name": "glossier-scraper",
   "version": "1.0.0",
-  "description": "A Playwright scraper for Glossier products using HTML DOM extraction.",
+  "description": "A Playwright scraper for Glossier products, including variants, descriptions, and prices from Lithuanian and US storefronts.",
   "main": "scraper.js",
   "scripts": {
     "start": "node scraper.js"
@@ -10,7 +9,10 @@
   "keywords": [
     "scraper",
     "playwright",
-    "glossier"
+    "glossier",
+    "web-scraping",
+    "product-variants",
+    "shopify"
   ],
   "license": "ISC",
   "type": "commonjs",

@@ -1,4 +1,4 @@
-Glossier Scraper - Technical Notes
+# Glossier Scraper - Technical Notes
 
 ## Tools
 - Node.js
@@ -10,23 +10,20 @@ Glossier Scraper - Technical Notes
 ## Approach
 The scraper uses Playwright to collect product data from the Glossier website. Browser rendering was chosen because the product listing contains dynamically loaded content.
 
-The scraper collects product information from the collection page and visits individual product pages to extract descriptions.
+The scraper scrolls through the collection page to load products, extracts basic product information using HTML selectors, and visits individual product pages to collect descriptions.
+
+For the stretch tasks, the scraper also retrieves Shopify product data to extract all available variants. Each variant is saved as a separate CSV row with its own ID, name, price, and URL.
+
+The scraper runs separately for the Lithuanian and US storefronts.
 
 ## Assumptions and Decisions
 - Product IDs are stored as strings to preserve their original representation.
-- Image URLs are stored as arrays of strings, including when only one image is available.
-- Image URL query parameters are removed to avoid requesting explicitly resized versions.
-- Prices are preserved as strings in the currency displayed by the website.
-- Scraping timestamps are stored as strings.
-- Product descriptions are extracted from product pages, with metadata used as a fallback when appropriate.
-
-## Challenges and Limitations
-- The Glossier website sometimes displays USD prices instead of EUR in automated browser sessions.
-- A persistent browser profile can help preserve the selected country and currency.
-- Product data and website structure can change over time.
-- The existing EUR dataset should be preserved when testing other locations.
-
-## Output
-The main output is a CSV file containing Glossier product information.
-
-Any additional US market scraping results should be saved separately rather than overwriting the original EUR dataset.
+- Shopify variant IDs are used as unique identifiers rather than product IDs.
+- Image URLs are stored as arrays of strings, even when only one image is available.
+- Image URL query parameters are removed to avoid explicitly resized versions.
+- Prices are stored as formatted strings in EUR for Lithuania and USD for the US.
+- When Shopify returns a zero variant price, the collection page price is used as a fallback.
+- Scraping timestamps are stored as ISO 8601 strings.
+- Product descriptions are extracted from product pages, with metadata used as a fallback when available.
+- Duplicate variant IDs are removed before saving.
+- Separate CSV files are used to prevent one market's results from

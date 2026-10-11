@@ -1,7 +1,21 @@
-
+# Dependencies
 node_modules/
-.env
-*.log
-.DS_Store
 
+# Playwright browser profiles (cookies and session data)
 .glossier-browser-lt/
+glossier-us-profile/
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# VS Code local settings
+.vscode/

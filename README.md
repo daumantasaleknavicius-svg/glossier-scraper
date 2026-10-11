@@ -1,65 +1,66 @@
-Glossier Product Scraper
+# Glossier Product Scraper
 
 A simple JavaScript scraper that uses Playwright to collect product data from the Glossier website.
 
-Features
+## Features
 
-Collects products from the Glossier website;
+- Collects products from the Glossier website.
+- Gets product names, variant IDs, prices, images, URLs, and descriptions.
+- Uses HTML selectors to extract product information.
+- Collects all available product variants as separate CSV rows.
+- Scrapes products from both Lithuania (EUR) and the United States (USD).
+- Saves the results in separate CSV files.
+- Avoids saving incomplete results when scraping fails.
 
-Gets: product names, IDs, prices, images, URLs, and descriptions;
+## Requirements
 
-Uses HTML selectors to extract data;
+- Node.js
+- npm
 
-Saves the results in a CSV file;
+## Installation
 
-
-Requirements
-
-Node.js;
-
-npm;
-
-Installation
-
+```bash
 npm install
 npx playwright install chromium
+```
 
-How to Run
+## How to Run
 
+```bash
 npm start
+```
 
-The results will be saved in products_final.csv.
+The scraper collects Lithuanian products first, then US products.
 
-CSV Data
+The results are saved in:
 
-The CSV file contains:
+- `products_lt.csv` – Lithuanian storefront, prices in EUR.
+- `products_us.csv` – US storefront, prices in USD.
 
-name – Product name
+The US scraper uses a saved browser profile (`glossier-us-profile`) to remember the selected country.
 
-id – Product variant ID
+## CSV Data
 
-url – Product link
+Both CSV files contain the following columns:
 
-image – Image link
+- name – Product name, including variant information where applicable.
+- id – Unique Shopify product variant ID.
+- url – Product link, including the variant ID.
+- images – List of product image URLs.
+- price – Product variant price in EUR or USD, depending on the storefront.
+- description – Product description extracted from the product page or metadata.
+- scraped_at – Date and time of scraping in ISO 8601 format.
 
-price – Price in EUR
+## Notes
 
-description – Product description
+- Product prices and availability may change.
+- Some descriptions are taken from page metadata.
+- Each product variant is saved as a separate row, so the number of CSV rows is higher than the number of products.
+- If Shopify returns a zero price, the scraper uses the price displayed on the collection page.
+- Bundle prices may vary depending on the selected configuration.
+- The scraper may need updates if the website structure changes.
+- IDs are Shopify variant IDs, not Shopify product IDs.
 
-descriptionSource – Where the description came from
+## AI Usage
 
-scrapedAt – Date and time of scraping
-
-Notes
-
-Product prices and availability may change.
-
-Some descriptions are taken from page metadata.
-
-The scraper may need updates if the website changes.
-
-IDs are variant IDs, not Shopify product IDs.
-
-AI usage
-
-Used for the code optimization suggestions, additionaly used for the CSV and ID handling issues.
+AI was used for code optimization suggestions, implementing product variant extraction and US storefront scraping, and resolving CSV formatting, product ID, and price-handling issues.

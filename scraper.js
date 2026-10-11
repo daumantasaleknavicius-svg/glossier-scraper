@@ -2,32 +2,24 @@
 const { chromium } = require("playwright");
 const fs = require("fs");
 
-const csv = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
+const BASE = "https://www.glossier.com";
+const csv = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+const clean = s => String(s ?? "").replace(/\s+/g, " ").trim();
 
-async function main() {
-    const browser = await chromium.launch({ headless: true });
+async function scrape(context, market, url) {
+    const page = await context.newPage();
 
     try {
-        const context = await browser.newContext({
-            locale: "lt-LT",
-            timezoneId: "Europe/Vilnius",
-            extraHTTPHeaders: {
-                "Accept-Language": "lt-LT,lt;q=0.9,en;q=0.8"
-            }
-        });
-
-        const page = await context.newPage();
-
-        await page.goto("https://www.glossier.com/en-lt/collections/all", {
+        await page.goto(url, {
             waitUntil: "domcontentloaded",
             timeout: 45000
         });
 
-        // Scroll through the page to load all products
         const cards = page.locator(".pi.js-product-item");
-        await cards.first().waitFor();
+        await cards.first().waitFor({ timeout: 30000 });
         await page.waitForTimeout(3000);
 
+        // Original working scrolling method
         let previousCount = 0;
 
         for (let i = 0; i < 20; i++) {
@@ -46,165 +38,279 @@ async function main() {
 
             const currentCount = await cards.count();
 
-            if (currentCount === previousCount && currentCount === count) break;
+            if (currentCount === previousCount &&
+                currentCount === count) break;
+
             previousCount = currentCount;
         }
 
-        // Extract product information
+        // Allow additional products to load
+        for (let i = 0; i < 10 && await cards.count() < 97; i++) {
+            await page.evaluate(() =>
+                window.scrollTo(0, document.body.scrollHeight)
+            );
+            await page.waitForTimeout(1500);
+        }
+
+        // Extract collection products
         const products = await page.evaluate(() =>
             [...document.querySelectorAll(".pi.js-product-item")].map(card => {
                 const image = card.querySelector("img");
                 const imageUrl = image?.currentSrc || image?.src || "";
 
                 return {
-                    name: card.querySelector(".js-product-title")?.textContent.trim() || "",
-                    id: "",
-                    url: card.querySelector("a.js-product-item-link")?.href || "",
+                    name: card.querySelector(".js-product-title")
+                        ?.textContent.trim() || "",
+                    url: card.querySelector("a.js-product-item-link")
+                        ?.href || "",
                     images: imageUrl
                         ? [new URL(imageUrl, document.baseURI).origin +
                            new URL(imageUrl, document.baseURI).pathname]
                         : [],
                     price: card.querySelector(".pi__price--current")
-                        ?.textContent.replace("Sale price", "").trim() || "",
-                    description: "",
-                    scraped_at: new Date().toISOString()
+                        ?.textContent.replace("Sale price", "").trim() || ""
                 };
-            })
+            }).filter(p => p.url)
         );
 
-        console.log("Products found:", products.length);
+        const unique = [...new Map(products.map(p => [
+            new URL(p.url).pathname.split("/products/")[1] || p.url,
+            p
+        ])).values()];
 
-        const invalidPrices = products.filter(product => !product.price.includes("€"));
+        console.log(
+            `${market.toUpperCase()}: ${products.length} cards, ` +
+            `${unique.length} products`
+        );
 
-        if (invalidPrices.length) {
-            console.log("\nProducts with invalid prices:");
+        // Don't overwrite a good CSV with incomplete data
+        if (unique.length < 90) {
+            console.log("Too few products. Existing CSV preserved.");
+            return;
+        }
 
-            for (const product of invalidPrices) {
-                console.log(product.name, product.price, product.url);
-            }
+        const symbol = market === "lt" ? "€" : "$";
 
-            console.log("CSV was not created.");
+        if (!unique[0].price.includes(symbol)) {
+            console.log("Wrong currency. Existing CSV preserved.");
             return;
         }
 
         const detailPage = await context.newPage();
+        const rows = [];
+        let failed = 0;
 
-        // Visit each product page to collect descriptions and IDs
-        for (const [index, product] of products.entries()) {
-            if (!product.url) continue;
+        for (const [index, product] of unique.entries()) {
+            const productUrl = new URL(product.url);
+            productUrl.search = "";
 
-            const url = new URL(product.url);
-            product.id = url.searchParams.get("variant") || "";
+            let data;
 
-            for (let attempt = 0; attempt < 2; attempt++) {
+            // Stretch Task 4: retrieve all product variants
+            for (let attempt = 0; attempt < 3; attempt++) {
                 try {
-                    await detailPage.goto(product.url, {
-                        waitUntil: "domcontentloaded",
-                        timeout: 30000
-                    });
+                    const response = await context.request.get(
+                        `${productUrl.href}.js`,
+                        { timeout: 25000 }
+                    );
 
-                    await detailPage.waitForTimeout(1500);
+                    if (!response.ok()) {
+                        throw Error("Product unavailable");
+                    }
 
-                    const result = await detailPage.evaluate(() => {
-                        const clean = text =>
-                            (text || "").replace(/\s+/g, " ").trim();
+                    data = await response.json();
 
-                        const htmlDescription = clean(document.querySelector(
-                            ".pv-details__info-item:not(.pv-details__tagline)"
-                        )?.innerText);
+                    if (!data.variants?.length) {
+                        throw Error("No variants");
+                    }
 
-                        const metaDescription = clean(document.querySelector(
-                            'meta[name="description"]'
-                        )?.content);
-
-                        const variantId =
-                            document.querySelector('[name="id"]')?.value ||
-                            document.querySelector('[data-variant-id]')?.getAttribute("data-variant-id") ||
-                            "";
-
-                        return {
-                            description: htmlDescription || metaDescription,
-                            variantId
-                        };
-                    });
-
-                    if (!product.id) product.id = result.variantId;
-
-                    product.description = result.description;
-
-                    if (product.description && product.id) break;
-                } catch (error) {
-                    console.log(`${product.name}: ${error.message.split("\n")[0]}`);
+                    break;
+                } catch {
+                    await page.waitForTimeout(1000);
                 }
-
-                await detailPage.waitForTimeout(1500);
             }
 
+            if (!data) {
+                failed++;
+                console.log(`Failed: ${product.name}`);
+                continue;
+            }
+
+            // Original product-page description extraction
+            let description = "";
+
+            try {
+                await detailPage.goto(productUrl.href, {
+                    waitUntil: "domcontentloaded",
+                    timeout: 30000
+                });
+
+                await detailPage.waitForTimeout(1000);
+
+                description = await detailPage.evaluate(() => {
+                    const clean = s =>
+                        (s || "").replace(/\s+/g, " ").trim();
+
+                    return clean(document.querySelector(
+                        ".pv-details__info-item:not(.pv-details__tagline)"
+                    )?.innerText) ||
+                    clean(document.querySelector(
+                        'meta[name="description"]'
+                    )?.content);
+                });
+            } catch {
+                description = clean(
+                    (data.description || "").replace(/<[^>]*>/g, " ")
+                );
+            }
+
+            const timestamp = new Date().toISOString();
+
+            for (const variant of data.variants) {
+                if (!variant.id || variant.price == null) continue;
+
+                const title = clean(
+                    variant.public_title || variant.title
+                );
+
+                const variantName =
+                    title.toLowerCase() === "default title"
+                        ? "" : title;
+
+                const images = [
+                    variant.featured_image,
+                    ...product.images,
+                    ...(data.images || [])
+                ].map(image => {
+                    try {
+                        const src = typeof image === "string"
+                            ? image : image?.src;
+
+                        if (!src) return "";
+
+                        const u = new URL(src, BASE);
+                        return u.origin + u.pathname;
+                    } catch {
+                        return "";
+                    }
+                }).filter(Boolean);
+
+                const variantUrl = new URL(productUrl.href);
+                variantUrl.searchParams.set("variant", variant.id);
+
+                // Use collection price if Shopify reports zero
+                const price = Number(variant.price) > 0
+                    ? new Intl.NumberFormat(
+                        market === "lt" ? "lt-LT" : "en-US",
+                        {
+                            style: "currency",
+                            currency: market === "lt" ? "EUR" : "USD"
+                        }
+                    ).format(Number(variant.price) / 100)
+                    : product.price;
+
+                rows.push({
+                    name: variantName
+                        ? `${data.title} - ${variantName}`
+                        : data.title,
+                    id: String(variant.id),
+                    url: variantUrl.href,
+                    images: [...new Set(images)],
+                    price,
+                    description,
+                    scraped_at: timestamp
+                });
+            }
+
+            console.log(`${index + 1}/${unique.length}: ${product.name}`);
+        }
+
+        await detailPage.close();
+
+        const finalRows = [...new Map(
+            rows.map(row => [row.id, row])
+        ).values()];
+
+        if (failed || finalRows.length < unique.length) {
             console.log(
-                `${index + 1}/${products.length}: ${product.name} | ID: ${product.id || "NOT FOUND"}`
+                `${failed} products failed. Existing CSV preserved.`
             );
-
-            await detailPage.waitForTimeout(400);
-        }
-
-        // Check for missing or duplicate IDs
-        const ids = products.map(product => product.id);
-        const seen = new Set();
-        const duplicates = [];
-
-        for (const product of products) {
-            if (seen.has(product.id)) duplicates.push(product);
-            seen.add(product.id);
-        }
-
-        if (products.some(product => !product.id) || duplicates.length) {
-            console.log("\nID issues:");
-
-            products.filter(product => !product.id).forEach(product =>
-                console.log("Missing ID:", product.name, product.url)
-            );
-
-            duplicates.forEach(product =>
-                console.log("Duplicate ID:", product.name, product.id)
-            );
-
-            console.log("CSV was not created.");
             return;
         }
 
-        // Save collected data to CSV
         const headers = [
             "name", "id", "url", "images",
             "price", "description", "scraped_at"
         ];
 
-        const lines = [
+        fs.writeFileSync(`products_${market}.csv`, "\uFEFF" + [
             headers.join(","),
-            ...products.map(product =>
-                headers.map(header =>
-                    csv(header === "images"
-                        ? JSON.stringify(product.images)
-                        : product[header])
-                ).join(",")
-            )
-        ];
+            ...finalRows.map(p => headers.map(h =>
+                csv(h === "images"
+                    ? JSON.stringify(p.images)
+                    : p[h])
+            ).join(","))
+        ].join("\r\n"), "utf8");
 
-        fs.writeFileSync(
-            "products_final.csv",
-            "\uFEFF" + lines.join("\r\n"),
-            "utf8"
+        console.log(
+            `${market.toUpperCase()}: ${finalRows.length} variants saved`
         );
-
-        console.log("\nRESULTS");
-        console.log("Products:", products.length);
-        console.log("Unique IDs:", new Set(ids).size);
-        console.log("Prices in EUR:", products.filter(product => product.price.includes("€")).length);
-        console.log("Products with images:", products.filter(product => product.images.length > 0).length);
-        console.log("Missing descriptions:", products.filter(product => !product.description).length);
-        console.log("File created: products_final.csv");
+        console.log(
+            "Zero prices:",
+            finalRows.filter(p =>
+                /(?:€\s*0[,.]00|0[,.]00\s*€|\$\s*0[,.]00)/.test(p.price)
+            ).length
+        );
     } finally {
-        await browser.close();
+        await page.close();
     }
 }
 
-main().catch(console.error);
+async function main() {
+    // Lithuania: original working browser configuration
+    const browser = await chromium.launch({ headless: true });
+
+    try {
+        const lt = await browser.newContext({
+            locale: "lt-LT",
+            timezoneId: "Europe/Vilnius",
+            extraHTTPHeaders: {
+                "Accept-Language": "lt-LT,lt;q=0.9,en;q=0.8"
+            }
+        });
+
+        try {
+            await scrape(
+                lt,
+                "lt",
+                `${BASE}/en-lt/collections/all`
+            );
+        } finally {
+            await lt.close();
+        }
+    } finally {
+        await browser.close();
+    }
+
+    // US: reuse saved browser profile and country selection
+    const us = await chromium.launchPersistentContext(
+        "./glossier-us-profile",
+        {
+            headless: false,
+            locale: "en-US",
+            timezoneId: "America/New_York"
+        }
+    );
+
+    try {
+        await scrape(
+            us,
+            "us",
+            `${BASE}/collections/all`
+        );
+    } finally {
+        await us.close();
+    }
+}
+
+main().catch(error => console.log(error.message));
